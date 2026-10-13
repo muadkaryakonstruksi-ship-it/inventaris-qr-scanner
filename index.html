@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scanner QR Inventaris</title>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 520px;
+      margin: 24px auto;
+      padding: 16px;
+      text-align: center;
+      color: #222;
+    }
+    button {
+      padding: 12px 18px;
+      margin: 6px;
+      border: 0;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    #startBtn { background: #1769e0; color: white; }
+    #stopBtn { background: #e7e7e7; color: #222; }
+    #status { margin: 16px 0; overflow-wrap: anywhere; }
+    #result { width: 100%; box-sizing: border-box; padding: 10px; }
+  </style>
+</head>
+<body>
+  <h2>Scanner QR Inventaris</h2>
+  <p>Arahkan kamera ke kode QR. Izinkan akses kamera jika diminta.</p>
+
+  <div id="reader"></div>
+  <p id="status">Tekan tombol untuk memulai kamera.</p>
+
+  <button id="startBtn">Mulai Scan</button>
+  <button id="stopBtn">Hentikan Kamera</button>
+
+  <p>Jika pengiriman otomatis gagal, salin hasil berikut:</p>
+  <input id="result" type="text" readonly placeholder="Hasil QR akan muncul di sini">
+  <button id="copyBtn">Salin Kode</button>
+
+  <script>
+    let scanner = null;
+    let running = false;
+    let completed = false;
+
+    const statusEl = document.getElementById("status");
+    const resultEl = document.getElementById("result");
+
+    async function stopCamera() {
+      if (scanner && running) {
+        try {
+          await scanner.stop();
+        } catch (e) {
+          console.warn("Kamera sudah berhenti atau tidak aktif.", e);
+        }
+        running = false;
+      }
+    }
+
+    async function startCamera() {
+      if (running) return;
+
+      if (!window.isSecureContext || !navigator.mediaDevices) {
+        statusEl.textContent =
+          "Kamera tidak tersedia. Buka halaman melalui HTTPS.";
+        return;
+      }
+
+      completed = false;
+      statusEl.textContent = "Meminta akses kamera...";
+
+      try {
+        if (!scanner) {
+          scanner = new Html5Qrcode("reader");
+        }
+
+        await scanner.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          async (decodedText) => {
+            if (completed) return;
+            completed = true;
+
+            resultEl.value = decodedText;
+            statusEl.textContent = "QR terbaca. Mengirim hasil ke aplikasi...";
+
+            await stopCamera();
+
+            if (window.opener && !window.opener.closed) {
+              window.opener.postMessage(
+                {
+                  type: "INVENTARIS_QR_RESULT",
+                  value: decodedText
+                },
+                "*"
+              );
+
+              statusEl.textContent =
+                "Hasil dikirim. Jendela scanner akan ditutup.";
+              setTimeout(() => window.close(), 700);
+            } else {
+              statusEl.textContent =
+                "QR terbaca, tetapi aplikasi asal tidak ditemukan. Salin hasilnya.";
+            }
+          }
+        );
+
+        running = true;
+        statusEl.textContent = "Kamera aktif. Arahkan ke QR.";
+      } catch (err) {
+        console.error("Gagal memulai kamera:", err);
+        statusEl.textContent =
+          "Kamera gagal dibuka: " + (err.message || err.name || err);
+      }
+    }
+
+    document.getElementById("startBtn").addEventListener("click", startCamera);
+    document.getElementById("stopBtn").addEventListener("click", stopCamera);
+
+    document.getElementById("copyBtn").addEventListener("click", async () => {
+      if (!resultEl.value) {
+        statusEl.textContent = "Belum ada hasil QR untuk disalin.";
+        return;
+      }
+
+      try {
+        await navigator.clipboard.writeText(resultEl.value);
+        statusEl.textContent = "Kode QR berhasil disalin.";
+      } catch (e) {
+        resultEl.select();
+        document.execCommand("copy");
+        statusEl.textContent = "Coba tempel hasil QR di aplikasi inventaris.";
+      }
+    });
+
+    window.addEventListener("beforeunload", () => {
+      if (scanner && running) scanner.stop().catch(() => {});
+    });
+  </script>
+</body>
+</html>
