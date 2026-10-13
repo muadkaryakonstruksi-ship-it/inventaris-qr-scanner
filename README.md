@@ -1,0 +1,1 @@
+# inventaris-qr-scanner
